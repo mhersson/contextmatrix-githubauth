@@ -90,3 +90,43 @@ func TestCachingProvider_CustomSkew(t *testing.T) {
 	_, _, _ = cp.GenerateToken(context.Background())
 	assert.Equal(t, int32(2), atomic.LoadInt32(&inner.calls))
 }
+
+func TestCachingProvider_PropagatesError(t *testing.T) {
+	inner := &fakeProvider{
+		tokens:  []string{"x"},
+		expiry:  time.Now().Add(10 * time.Minute),
+		failOn:  1,
+		failErr: errSentinel("boom"),
+	}
+	cp := NewCachingProvider(inner)
+
+	_, _, err := cp.GenerateToken(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "boom")
+}
+
+func TestCachingProvider_RetriesAfterError(t *testing.T) {
+	inner := &fakeProvider{
+		tokens:  []string{"first", "second"},
+		expiry:  time.Now().Add(45 * time.Minute),
+		failOn:  1, // first call fails
+		failErr: errSentinel("boom"),
+	}
+	cp := NewCachingProvider(inner)
+
+	// First call: fails; cache empty.
+	_, _, err := cp.GenerateToken(context.Background())
+	require.Error(t, err)
+
+	// Second call: inner succeeds on call n=2, returning tokens[1]="second".
+	// The key property: errors are not cached — the retry reaches the inner
+	// provider rather than returning the previous error.
+	token, _, err := cp.GenerateToken(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "second", token)
+}
+
+// errSentinel is a tiny helper for constructing error values in tests.
+type errSentinel string
+
+func (e errSentinel) Error() string { return string(e) }
