@@ -7,3 +7,11 @@ coverage.txt
 .idea/
 .vscode/
 *.swp
+
+# Secrets / credentials (this module handles App private keys)
+*.pem
+*.key
+*.p12
+
+# OS
+.DS_Store
