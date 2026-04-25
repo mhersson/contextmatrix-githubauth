@@ -57,3 +57,36 @@ func TestCachingProvider_FreshCacheReused(t *testing.T) {
 
 	assert.Equal(t, int32(1), atomic.LoadInt32(&inner.calls), "inner provider should be called once")
 }
+
+func TestCachingProvider_NearExpiryRefreshes(t *testing.T) {
+	inner := &fakeProvider{
+		tokens: []string{"first", "second"},
+		expiry: time.Now().Add(2 * time.Minute), // < 5m default skew
+	}
+	cp := NewCachingProvider(inner)
+
+	token, _, err := cp.GenerateToken(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "first", token)
+
+	// First call cached "first" with expiry 2m out — that's already
+	// within skew, so the next call should refresh and return "second".
+	token, _, err = cp.GenerateToken(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "second", token)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&inner.calls))
+}
+
+func TestCachingProvider_CustomSkew(t *testing.T) {
+	inner := &fakeProvider{
+		tokens: []string{"first", "second"},
+		expiry: time.Now().Add(10 * time.Minute),
+	}
+	// With a 30-minute skew, a 10-minute-out token is already considered
+	// stale and triggers a refresh on every call.
+	cp := NewCachingProvider(inner, WithRefreshSkew(30*time.Minute))
+
+	_, _, _ = cp.GenerateToken(context.Background())
+	_, _, _ = cp.GenerateToken(context.Background())
+	assert.Equal(t, int32(2), atomic.LoadInt32(&inner.calls))
+}
