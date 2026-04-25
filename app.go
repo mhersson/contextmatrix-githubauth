@@ -1,9 +1,12 @@
 package githubauth
 
 import (
+	"context"
 	"crypto/rsa"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -108,4 +111,54 @@ func (p *AppProvider) createJWT() (string, error) {
 		return "", fmt.Errorf("sign JWT: %w", err)
 	}
 	return signed, nil
+}
+
+// installationToken matches the relevant fields of GitHub's response.
+type installationToken struct {
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// GenerateToken signs a JWT, exchanges it via GitHub's REST API, and
+// returns the resulting installation access token plus its expiry.
+func (p *AppProvider) GenerateToken(ctx context.Context) (string, time.Time, error) {
+	jwtToken, err := p.createJWT()
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("create JWT: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/app/installations/%d/access_tokens", p.apiBaseURL, p.installationID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("request token: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusCreated {
+		return "", time.Time{}, fmt.Errorf("github api returned status %d", resp.StatusCode)
+	}
+
+	var t installationToken
+	if err := json.Unmarshal(body, &t); err != nil {
+		return "", time.Time{}, fmt.Errorf("parse token response: %w", err)
+	}
+
+	if t.Token == "" {
+		return "", time.Time{}, fmt.Errorf("empty token in response")
+	}
+	return t.Token, t.ExpiresAt, nil
 }

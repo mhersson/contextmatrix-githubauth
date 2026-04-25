@@ -1,13 +1,19 @@
 package githubauth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,4 +88,35 @@ func TestAppProvider_CreateJWT(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 2, dots, "JWT should have exactly two dots")
+}
+
+func TestAppProvider_GenerateToken_OK(t *testing.T) {
+	expectedExpiry := time.Now().Add(50 * time.Minute).UTC().Truncate(time.Second)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/app/installations/456/access_tokens", r.URL.Path)
+		auth := r.Header.Get("Authorization")
+		assert.True(t, strings.HasPrefix(auth, "Bearer "), "Authorization should be a Bearer JWT, got %q", auth)
+		assert.Equal(t, "application/vnd.github+json", r.Header.Get("Accept"))
+		assert.Equal(t, "2022-11-28", r.Header.Get("X-GitHub-Api-Version"))
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token":      "ghs_installtoken123",
+			"expires_at": expectedExpiry,
+		})
+	}))
+	defer server.Close()
+
+	key := genTestKey(t)
+	p, err := NewAppProviderWithKey(123, 456, key, server.URL)
+	require.NoError(t, err)
+
+	token, expiresAt, err := p.GenerateToken(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "ghs_installtoken123", token)
+	assert.True(t, expiresAt.Equal(expectedExpiry),
+		"expiry mismatch: got %s, want %s", expiresAt, expectedExpiry)
 }
