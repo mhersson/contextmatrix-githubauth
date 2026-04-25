@@ -120,3 +120,66 @@ func TestAppProvider_GenerateToken_OK(t *testing.T) {
 	assert.True(t, expiresAt.Equal(expectedExpiry),
 		"expiry mismatch: got %s, want %s", expiresAt, expectedExpiry)
 }
+
+func TestAppProvider_GenerateToken_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message": "bad credentials"}`))
+	}))
+	defer server.Close()
+
+	p, err := NewAppProviderWithKey(123, 456, genTestKey(t), server.URL)
+	require.NoError(t, err)
+
+	_, _, err = p.GenerateToken(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status 401")
+}
+
+func TestAppProvider_GenerateToken_BadJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte("not-json"))
+	}))
+	defer server.Close()
+
+	p, err := NewAppProviderWithKey(123, 456, genTestKey(t), server.URL)
+	require.NoError(t, err)
+
+	_, _, err = p.GenerateToken(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse token response")
+}
+
+func TestAppProvider_GenerateToken_EmptyToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"token": "", "expires_at": "2026-04-25T00:00:00Z"}`))
+	}))
+	defer server.Close()
+
+	p, err := NewAppProviderWithKey(123, 456, genTestKey(t), server.URL)
+	require.NoError(t, err)
+
+	_, _, err = p.GenerateToken(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty token")
+}
+
+func TestAppProvider_WithAPIBaseURL_TrailingSlash(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"token": "x", "expires_at": "2026-04-25T00:00:00Z"}`))
+	}))
+	defer server.Close()
+
+	// Pass URL with trailing slash; provider should trim it.
+	p, err := NewAppProviderWithKey(123, 456, genTestKey(t), server.URL+"/")
+	require.NoError(t, err)
+
+	_, _, err = p.GenerateToken(context.Background())
+	require.NoError(t, err)
+	assert.True(t, called, "mock server should have received the request")
+}
