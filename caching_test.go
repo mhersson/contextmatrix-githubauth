@@ -126,6 +126,38 @@ func TestCachingProvider_RetriesAfterError(t *testing.T) {
 	assert.Equal(t, "second", token)
 }
 
+func TestCachingProvider_Concurrent(t *testing.T) {
+	inner := &fakeProvider{
+		tokens: []string{"once"},
+		expiry: time.Now().Add(45 * time.Minute),
+	}
+	cp := NewCachingProvider(inner)
+
+	const goroutines = 50
+	tokens := make(chan string, goroutines)
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			tok, _, err := cp.GenerateToken(context.Background())
+			require.NoError(t, err)
+			tokens <- tok
+		}()
+	}
+	wg.Wait()
+	close(tokens)
+
+	// All goroutines should see the same token.
+	for tok := range tokens {
+		assert.Equal(t, "once", tok)
+	}
+	// Inner provider should have been called at most a small number of
+	// times. With a single-mutex serialization, exactly once.
+	assert.Equal(t, int32(1), atomic.LoadInt32(&inner.calls))
+}
+
 // errSentinel is a tiny helper for constructing error values in tests.
 type errSentinel string
 
