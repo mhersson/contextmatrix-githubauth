@@ -1,0 +1,9 @@
+# Build artifacts
+*.test
+*.out
+coverage.txt
+
+# Editor
+.idea/
+.vscode/
+*.swp
