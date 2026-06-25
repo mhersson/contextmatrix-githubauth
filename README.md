@@ -15,14 +15,19 @@ type TokenGenerator interface {
 Three implementations:
 
 - **`AppProvider`** — mints short-lived (~1h) installation access tokens
-  from a GitHub App. Use this in production where possible.
+  from a GitHub App. Use this in production where possible. Construct it
+  with `NewAppProvider` (reads the PEM key from disk); a
+  `NewAppProviderWithKey` variant that takes an already-parsed
+  `*rsa.PrivateKey` is provided for testing.
 - **`PATProvider`** — returns a static fine-grained personal access
   token with a sentinel "never refresh" expiry.
 - **`CachingProvider`** — wraps another `TokenGenerator` and amortizes
   minting across calls. Suitable for server-side use where every call
   uses the token immediately. Not recommended in places where the token
   is handed off to a long-lived consumer (see the contextmatrix-runner
-  rationale).
+  rationale). Refreshes proactively once the cached token is within its
+  refresh skew of expiry (default 5 minutes); override with
+  `githubauth.WithRefreshSkew(d)`.
 
 ## Usage
 
@@ -37,6 +42,9 @@ inner, err := githubauth.NewAppProvider(
 if err != nil { /* ... */ }
 
 provider := githubauth.NewCachingProvider(inner)
+
+// To tune when the cache refreshes ahead of expiry (default 5 minutes):
+provider = githubauth.NewCachingProvider(inner, githubauth.WithRefreshSkew(2*time.Minute))
 
 // Or PAT
 inner, err := githubauth.NewPATProvider(os.Getenv("GH_TOKEN"))
