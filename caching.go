@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// defaultRefreshSkew is how close to expiry the cache will consider a
-// token "stale" and refresh proactively.
+// defaultRefreshSkew is how close to expiry the cache considers a
+// token "stale" and refreshes proactively.
 const defaultRefreshSkew = 5 * time.Minute
 
 // CachingProvider wraps a TokenGenerator and reuses the most recent
@@ -59,8 +59,8 @@ func (c *CachingProvider) GenerateToken(ctx context.Context) (string, time.Time,
 	token, exp, err := c.inner.GenerateToken(ctx)
 	if err != nil {
 		// Don't poison the cache on error — keep whatever was there
-		// (which may be stale, but the next call will try to refresh
-		// again).
+		// (which can be stale, but the next call retries the inner
+		// provider).
 		return "", time.Time{}, err
 	}
 
