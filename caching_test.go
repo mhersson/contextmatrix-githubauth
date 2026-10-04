@@ -14,7 +14,7 @@ import (
 // fakeProvider counts calls and returns a configured (token, expiresAt, err).
 type fakeProvider struct {
 	mu      sync.Mutex
-	calls   int32
+	calls   atomic.Int32
 	tokens  []string  // returned in order; last value reused if exhausted
 	expiry  time.Time // returned for every call
 	failOn  int       // call number (1-indexed) on which to return the error
@@ -24,8 +24,8 @@ type fakeProvider struct {
 func (f *fakeProvider) GenerateToken(_ context.Context) (string, time.Time, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	atomic.AddInt32(&f.calls, 1)
-	n := int(atomic.LoadInt32(&f.calls))
+	f.calls.Add(1)
+	n := int(f.calls.Load())
 
 	if f.failOn != 0 && n == f.failOn {
 		return "", time.Time{}, f.failErr
@@ -55,7 +55,7 @@ func TestCachingProvider_FreshCacheReused(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "first", token)
 
-	assert.Equal(t, int32(1), atomic.LoadInt32(&inner.calls), "inner provider should be called once")
+	assert.Equal(t, int32(1), inner.calls.Load(), "inner provider should be called once")
 }
 
 func TestCachingProvider_NearExpiryRefreshes(t *testing.T) {
@@ -74,7 +74,7 @@ func TestCachingProvider_NearExpiryRefreshes(t *testing.T) {
 	token, _, err = cp.GenerateToken(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "second", token)
-	assert.Equal(t, int32(2), atomic.LoadInt32(&inner.calls))
+	assert.Equal(t, int32(2), inner.calls.Load())
 }
 
 func TestCachingProvider_CustomSkew(t *testing.T) {
@@ -88,7 +88,7 @@ func TestCachingProvider_CustomSkew(t *testing.T) {
 
 	_, _, _ = cp.GenerateToken(context.Background())
 	_, _, _ = cp.GenerateToken(context.Background())
-	assert.Equal(t, int32(2), atomic.LoadInt32(&inner.calls))
+	assert.Equal(t, int32(2), inner.calls.Load())
 }
 
 func TestCachingProvider_PropagatesError(t *testing.T) {
@@ -138,7 +138,7 @@ func TestCachingProvider_Concurrent(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
 			tok, _, err := cp.GenerateToken(context.Background())
@@ -155,7 +155,7 @@ func TestCachingProvider_Concurrent(t *testing.T) {
 	}
 	// Inner provider should have been called at most a small number of
 	// times. With a single-mutex serialization, exactly once.
-	assert.Equal(t, int32(1), atomic.LoadInt32(&inner.calls))
+	assert.Equal(t, int32(1), inner.calls.Load())
 }
 
 // errSentinel is a tiny helper for constructing error values in tests.
