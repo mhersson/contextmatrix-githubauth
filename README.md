@@ -1,5 +1,12 @@
 # contextmatrix-githubauth
 
+> **Archived.** This module was folded into
+> [contextmatrix](https://github.com/mhersson/contextmatrix) as the internal
+> package `internal/githubauth` (contextmatrix PR #463), because contextmatrix
+> was its only active importer. It receives no further updates. Existing
+> tags stay fetchable through the Go module proxy, so pinned consumers keep
+> building.
+
 A small Go module providing GitHub authentication primitives shared by
 [contextmatrix](https://github.com/mhersson/contextmatrix) and
 [contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner).

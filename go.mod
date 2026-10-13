@@ -1,3 +1,4 @@
+// Deprecated: folded into contextmatrix as internal/githubauth; this module is archived and receives no updates.
 module github.com/mhersson/contextmatrix-githubauth
 
 go 1.27.2
